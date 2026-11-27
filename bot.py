@@ -4,6 +4,21 @@ import gspread
 from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes
 from datetime import datetime
+import threading
+from flask import Flask
+
+# Tạo 1 web giả để Render tưởng bot có cổng
+app_web = Flask(__name__)
+@app_web.route('/')
+def home():
+    return "Bot đang chạy!"
+
+def run_web():
+    import os
+    port = int(os.environ.get("PORT", 10000))
+    app_web.run(host="0.0.0.0", port=port)
+
+threading.Thread(target=run_web, daemon=True).start()
 
 TOKEN = os.environ.get("TOKEN")
 SHEET_ID = os.environ.get("SHEET_ID")
