@@ -1,3 +1,4 @@
+
 import os
 import json
 import gspread
@@ -27,7 +28,20 @@ sh = gc.open_by_key(SHEET_ID)
 
 MAP_KHO = {"TA":"Kho_TA","VT":"Kho_VT","TY":"Kho_TY","MM":"Kho_MM","U":"Kho_U","NL":"Kho_NL"}
 
-# --- Hàm tìm cột theo tên, để không bị lệch ---
+# --- BƯỚC 3: KHÓA BOT - CHỈ NGƯỜI CÓ ID MỚI XÀI ĐƯỢC ---
+# Lấy từ Environment trên Render: ALLOWED_IDS = 123456789,987654321
+ALLOWED_IDS = os.environ.get("ALLOWED_IDS", "")
+ALLOWED_SET = set(x.strip() for x in ALLOWED_IDS.split(",") if x.strip())
+
+async def check_quyen(update: Update):
+    user_id = str(update.effective_user.id)
+    # Nếu chưa cài ALLOWED_IDS thì cho tất cả xài (để test lần đầu)
+    # Nếu đã cài rồi mà không có trong danh sách thì chặn
+    if ALLOWED_SET and user_id not in ALLOWED_SET:
+        await update.message.reply_text(f"⛔ Bạn không có quyền dùng bot này!\nID của bạn là: {user_id}\nGửi ID này cho quản lý để được cấp quyền.")
+        return False
+    return True
+
 def get_col_index(ws, ten_cot):
     headers = ws.row_values(1)
     for idx, h in enumerate(headers, start=1):
@@ -36,10 +50,12 @@ def get_col_index(ws, ten_cot):
     return None
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not await check_quyen(update): return
     await update.message.reply_text("Bot kho đã chạy!\n/tonkho TA - Xem tồn kho\n/nhap TA-CAM 29 Cho dan bo\n/xuat NL-DAUDO 200 May muc")
 
-# --- LOGIC NHẬP / XUẤT HOÀN CHỈNH - DÙNG SỐ HIỆN TẠI TRÊN SHEET ---
+# --- LOGIC NHẬP / XUẤT - DÙNG SỐ HIỆN TẠI TRÊN SHEET ---
 async def nhap_xuat(update: Update, context: ContextTypes.DEFAULT_TYPE, loai: str):
+    if not await check_quyen(update): return
     try:
         if len(context.args) < 2:
             await update.message.reply_text("Sai cú pháp! VD: /nhap TA-CAM 29 Cho dan bo"); return
@@ -56,15 +72,12 @@ async def nhap_xuat(update: Update, context: ContextTypes.DEFAULT_TYPE, loai: st
         ws = sh.worksheet(tab)
         ws_ls = sh.worksheet("NhatKy")
 
-        # Đọc toàn bộ Sheet hiện tại
         all_data = ws.get_all_values()
         headers = all_data[0]
         col_ma = get_col_index(ws, "MaHang")
         col_ton = get_col_index(ws, "TonKho")
-        # Nếu Sheet bạn để tên cột là SoLuong thì lấy SoLuong
         if not col_ton:
             col_ton = get_col_index(ws, "SoLuong")
-
         col_ten = get_col_index(ws, "TenHang")
         col_dv = get_col_index(ws, "DonVi")
         col_min = get_col_index(ws, "TonToiThieu")
@@ -72,42 +85,34 @@ async def nhap_xuat(update: Update, context: ContextTypes.DEFAULT_TYPE, loai: st
         for i, row in enumerate(all_data[1:], start=2):
             if len(row) < col_ma: continue
             if str(row[col_ma-1]).strip().upper() == ma:
-
-                # Kiểm tra bắt buộc
                 if kho == "NL" and not ghichu:
                     await update.message.reply_text("⚠️ NL bắt buộc ghi máy nhận! VD: /xuat NL-DAUDO 200 May muc"); return
                 if kho == "VT" and not ghichu:
                     await update.message.reply_text("⚠️ VT bắt buộc ghi lô đất! VD: /xuat VT-NPK-8103 38 Lo ngo 01"); return
 
-                # 1. Lấy tồn kho HIỆN TẠI trên Sheet (không dùng số nạp sẵn)
                 ton_hien_tai_str = row[col_ton-1] if len(row) >= col_ton else "0"
                 try:
                     ton_hien_tai = float(ton_hien_tai_str) if ton_hien_tai_str else 0
                 except:
                     ton_hien_tai = 0
 
-                # 2. Tự cộng / trừ
                 if loai == "NHAP":
                     ton_moi = ton_hien_tai + sl
-                else: # XUAT
+                else:
                     ton_moi = ton_hien_tai - sl
                     if ton_moi < 0:
                         await update.message.reply_text(f"❌ Không đủ hàng! Tồn hiện tại chỉ có {int(ton_hien_tai)}, bạn đòi xuất {sl}"); return
 
-                # 3. Ghi tồn mới đè lên ô cũ
-                # Nếu số là số nguyên thì ghi số nguyên cho đẹp
                 if ton_moi == int(ton_moi):
                     ton_moi = int(ton_moi)
                 ws.update_cell(i, col_ton, ton_moi)
 
-                # 4. Ghi vào Nhật Ký
                 ten_hang = row[col_ten-1] if col_ten and len(row) >= col_ten else ma
                 don_vi = row[col_dv-1] if col_dv and len(row) >= col_dv else ""
                 ws_ls.append_row([datetime.now().strftime("%d/%m/%Y %H:%M"), kho, loai, ma, sl, ghichu, update.effective_user.first_name, ton_hien_tai, ton_moi])
 
                 msg = f"✅ {loai} {sl} {don_vi} {ten_hang} ({ma})\nTồn cũ: {int(ton_hien_tai) if isinstance(ton_hien_tai,float) else ton_hien_tai} -> Tồn mới: {ton_moi}"
 
-                # Cảnh báo sắp hết
                 if col_min and len(row) >= col_min and row[col_min-1]:
                     try:
                         ton_min = float(row[col_min-1])
@@ -132,6 +137,7 @@ async def xuat_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await nhap_xuat(update, context, "XUAT")
 
 async def muon_tra(update: Update, context: ContextTypes.DEFAULT_TYPE, loai: str):
+    if not await check_quyen(update): return
     try:
         ma = context.args[0].upper(); nguoi = " ".join(context.args[1:])
         ws = sh.worksheet("Kho_MM")
@@ -156,6 +162,7 @@ async def tra_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await muon_tra(update, context, "TRA")
 
 async def tonkho(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not await check_quyen(update): return
     try:
         kho = context.args[0].upper() if context.args else "ALL"
         if kho == "ALL":
