@@ -1,12 +1,14 @@
-#pip install python-telegram-bot gspread oauth2client
+import os
+import json
 import gspread
 from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes
 from datetime import datetime
 
-TOKEN = "9043088784:AAHpxhOyCugR55oM2o3Xvaluc3830oALsYY"
-SHEET_ID = "1qxE9qGEG2kggvktbbk19VdYWi5qv17lfKoD6s9vdTyY" # Lấy ở link Sheet: docs.google.com/spreadsheets/d/ID_NAY/edit
-gc = gspread.service_account(filename=r"D:\PAA holdings\35Ha\credentials.json")
+TOKEN = os.environ.get("TOKEN")
+SHEET_ID = os.environ.get("SHEET_ID")
+creds_dict = json.loads(os.environ.get("GOOGLE_CREDENTIALS"))
+gc = gspread.service_account_from_dict(creds_dict)
 sh = gc.open_by_key(SHEET_ID)
 
 MAP_KHO = {"TA":"Kho_TA","VT":"Kho_VT","TY":"Kho_TY","MM":"Kho_MM","U":"Kho_U","NL":"Kho_NL"}
